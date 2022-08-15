@@ -42,6 +42,7 @@ library
                      , Data.Roundtrip
                      , Data.UMap
                      , Data.ListMap
+                     , Data.Twiddle
 
   build-depends:       aeson
                      , base >=4.11 && <5
