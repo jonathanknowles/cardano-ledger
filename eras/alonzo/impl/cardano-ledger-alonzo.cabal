@@ -74,6 +74,7 @@ library
     containers,
     data-default,
     deepseq,
+    heapwords,
     measures,
     mtl,
     microlens,
