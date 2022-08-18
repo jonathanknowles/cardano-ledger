@@ -42,7 +42,6 @@ library
                      , Data.Roundtrip
                      , Data.UMap
                      , Data.ListMap
-                     , Data.Twiddle
 
   build-depends:       aeson
                      , base >=4.11 && <5
@@ -61,7 +60,6 @@ library
                      , text
                      , transformers >= 0.5
                      , vector
-                     , QuickCheck
                      -- IOHK deps
                      , cardano-crypto-class
                      , cardano-binary

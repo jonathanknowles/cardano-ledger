@@ -573,6 +573,7 @@ deriving via
     ) =>
     FromCBOR (Annotator (AlonzoTxBody era))
 
+
 pattern AlonzoTxBody ::
   EraTxBody era =>
   Set (TxIn (Crypto era)) ->

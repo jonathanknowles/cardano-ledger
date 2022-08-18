@@ -97,6 +97,7 @@ library
     Test.Cardano.Ledger.Rational
     Test.Cardano.Ledger.TestableEra
     Test.Cardano.Ledger.ValueFromList
+    Test.Cardano.Ledger.Twiddle
   build-depends:
     aeson >= 2,
     array,
@@ -113,6 +114,7 @@ library
     cardano-ledger-shelley-ma,
     cardano-protocol-tpraos,
     cardano-slotting,
+    cborg,
     containers,
     vector-map,
     data-default-class,

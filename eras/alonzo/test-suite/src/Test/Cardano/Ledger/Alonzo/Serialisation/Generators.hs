@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
@@ -63,14 +64,14 @@ instance Arbitrary PV1.Data where
     where
       gendata n
         | n > 0 =
-            oneof
-              [ PV1.I <$> arbitrary,
-                PV1.B <$> arbitrary,
-                PV1.Map <$> listOf ((,) <$> gendata (n `div` 2) <*> gendata (n `div` 2)),
-                PV1.Constr <$> fmap fromIntegral (arbitrary :: Gen Natural)
-                  <*> listOf (gendata (n `div` 2)),
-                PV1.List <$> listOf (gendata (n `div` 2))
-              ]
+          oneof
+            [ PV1.I <$> arbitrary,
+              PV1.B <$> arbitrary,
+              PV1.Map <$> listOf ((,) <$> gendata (n `div` 2) <*> gendata (n `div` 2)),
+              PV1.Constr <$> fmap fromIntegral (arbitrary :: Gen Natural)
+                <*> listOf (gendata (n `div` 2)),
+              PV1.List <$> listOf (gendata (n `div` 2))
+            ]
       gendata _ = oneof [PV1.I <$> arbitrary, PV1.B <$> arbitrary]
 
 instance
@@ -80,10 +81,11 @@ instance
   ) =>
   Arbitrary (AlonzoAuxiliaryData era)
   where
-  arbitrary = frequency 
-    [ (9, AlonzoAuxiliaryData <$> arbitrary <*> arbitrary)
-    , (1, pure $ AlonzoAuxiliaryData mempty mempty)
-    ]
+  arbitrary =
+    frequency
+      [ (9, AlonzoAuxiliaryData <$> arbitrary <*> arbitrary),
+        (1, pure $ AlonzoAuxiliaryData mempty mempty)
+      ]
 
 instance Arbitrary Tag where
   arbitrary = elements [Spend, Mint, Cert, Rewrd]
