@@ -82,6 +82,7 @@ allprops =
   testGroup
     (show $ typeRep (Proxy @e))
     [ testProperty "TxBody" $ propertyAnn @(Core.TxBody e),
+      testProperty "TxBody + twiddling" $ propertyAnn  @(Twiddler (Core.TxBody e))
       testProperty "Metadata" $ propertyAnn @(Core.AuxiliaryData e),
       testProperty "Value" $ property @(Core.Value e),
       testProperty "Script" $ propertyAnn @(Core.Script e),

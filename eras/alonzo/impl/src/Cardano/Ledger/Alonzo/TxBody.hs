@@ -192,6 +192,8 @@ deriving stock instance
   ) =>
   Eq (AlonzoTxOut era)
 
+deriving instance Generic (AlonzoTxOut era)
+
 -- | Already in NF
 instance NFData (AlonzoTxOut era) where
   rnf = rwhnf

@@ -1,18 +1,13 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstrainedClassMethods #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ExplicitNamespaces #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DeriveAnyClass #-}
-
-
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Test.Cardano.Ledger.Twiddle
   ( Twiddler (unTwiddler),
@@ -22,25 +17,29 @@ where
 
 import Cardano.Binary (ToCBOR (..))
 import Cardano.Ledger.Alonzo (AlonzoTxBody, AlonzoTxOut)
-import Cardano.Ledger.Alonzo.Tx (AlonzoTxBody (..))
+import Cardano.Ledger.Alonzo.TxBody (AlonzoTxBody (..))
 import Cardano.Ledger.Coin (Coin)
-import Cardano.Ledger.Core (EraTxBody)
-import Cardano.Ledger.TxIn (TxIn (..), TxId, TxIx)
-import Codec.CBOR.Term (Term (..), encodeTerm)
+import Cardano.Ledger.Core (Era, EraTxBody, Value)
+import Cardano.Ledger.Crypto (Crypto)
+import Cardano.Ledger.TxIn (TxIn (..))
+import Cardano.Ledger.Val (DecodeNonNegative, Val)
+import Codec.CBOR.Read (deserialiseFromBytes)
+import Codec.CBOR.Term (Term (..), decodeTerm, encodeTerm)
+import Codec.CBOR.Write (toLazyByteString)
 import Data.Bitraversable (bimapM)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (fromStrict)
+import Data.Foldable (toList)
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq)
 import Data.Sequence.Strict (StrictSeq)
 import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text.Lazy as T
 import Data.Typeable (Typeable)
-import Test.QuickCheck (Arbitrary (..), Gen, elements, shuffle)
-import Data.Sequence (Seq)
-import qualified Data.Map.Strict as Map
-import Data.Foldable (toList)
 import GHC.Generics
+import Test.QuickCheck (Arbitrary (..), Gen, elements, shuffle)
 
 data Twiddler a = Twiddler
   { unTwiddler :: !a,
@@ -52,7 +51,6 @@ gTwiddleTList a = TList <$> twiddleL' (from @a @p a)
 
 class Twiddle a where
   twiddle :: a -> Gen Term
-
   default twiddle :: forall p. (Generic a, TwiddleL' (Rep a p)) => a -> Gen Term
   twiddle = gTwiddleTList @a @p
 
@@ -115,7 +113,7 @@ class TwiddleL' a where
   twiddleL' :: a -> Gen [Term]
 
 instance TwiddleL' (V1 p) where
-  twiddleL' v1 = case v1 of {}
+  twiddleL' v1 = case v1 of
 
 instance TwiddleL' (U1 p) where
   twiddleL' U1 = pure []
@@ -139,21 +137,20 @@ instance (TwiddleL' (f p)) => TwiddleL' (M1 i c f p) where
 instance Twiddle Integer where
   twiddle = pure . TInteger
 
-instance Twiddle (TxId era)
+instance Crypto c => Twiddle (TxIn c) where
+  twiddle = pure . toTerm
 
-instance Twiddle TxIx
+instance (Era era, Val (Value era), DecodeNonNegative (Value era)) => Twiddle (AlonzoTxOut era) where
+  twiddle = pure . toTerm
 
-instance Twiddle (TxIn era)
-
-instance Twiddle (AlonzoTxOut era)
-
-instance Twiddle Coin
+instance Twiddle Coin where
+  twiddle = pure . toTerm
 
 instance EraTxBody era => Twiddle (AlonzoTxBody era) where
-  twiddle AlonzoTxBody {..} = do
-    inputs' <- twiddle inputs
-    outputs' <- twiddle outputs
-    fee' <- twiddle txfee
+  twiddle txBody = do
+    inputs' <- twiddle $ inputs txBody
+    outputs' <- twiddle $ outputs txBody
+    fee' <- twiddle $ txfee txBody
     optionalFields <- undefined
     pure . TMap $
       [ (TInt 0, inputs'),
@@ -161,3 +158,10 @@ instance EraTxBody era => Twiddle (AlonzoTxBody era) where
         (TInt 2, fee')
       ]
         <> optionalFields
+
+toTerm :: ToCBOR a => a -> Term
+toTerm enc = case res of
+  Right (_, t) -> t
+  Left err -> error $ show err
+  where
+    res = deserialiseFromBytes decodeTerm . toLazyByteString $ toCBOR enc
