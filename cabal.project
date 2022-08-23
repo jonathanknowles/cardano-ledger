@@ -43,14 +43,15 @@ test-show-details: streaming
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/cardano-base
-  tag: 631cb6cf1fa01ab346233b610a38b3b4cba6e6ab
-  --sha256: 0944wg2nqazmhlmsynwgdwxxj6ay0hb9qig9l128isb2cjia0hlp
+  tag: 278e71d44ad2a347992449a08e5de72a6672c0d7
+  --sha256: 0d71pxh4i35r5l6nncdd8vcyad619p2ys3qwa8yc7pfhl0pqslh3
   subdir:
     base-deriving-via
     binary
     binary/test
     cardano-crypto-class
     cardano-crypto-praos
+    heapwords
     measures
     slotting
     strict-containers
@@ -79,8 +80,8 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/plutus
-  tag: 4b40b31893a8a31456946670af981b06d71be6d5
-  --sha256: 0yzzrgbxi1vnd3hx46rvdds7pwcc58pfcfp3f59h7rkjqz07rbsz
+  tag: d7d3ae37488a64e1de9fa0dde3a075e78d823185
+  --sha256: 0i29ni6xgf8iyvkydmnm2nn3m75n43y914qbvh92zm0bx2fdi1rh
   subdir:
     plutus-ledger-api
     plutus-tx
