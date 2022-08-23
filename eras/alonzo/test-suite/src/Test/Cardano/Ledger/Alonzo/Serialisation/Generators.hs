@@ -3,7 +3,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
@@ -36,7 +35,12 @@ import Cardano.Ledger.Alonzo.Scripts
 import Cardano.Ledger.Alonzo.Tx
 import Cardano.Ledger.Alonzo.TxBody (AlonzoTxOut (..))
 import Cardano.Ledger.Alonzo.TxWitness
+import Cardano.Ledger.Coin (Coin)
 import Cardano.Ledger.Core
+import qualified Cardano.Ledger.Crypto as C
+import Cardano.Ledger.TxIn (TxIn)
+import Cardano.Ledger.Val (DecodeNonNegative, Val)
+import Codec.CBOR.Term (Term (..))
 import Data.Int (Int64)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
@@ -44,6 +48,9 @@ import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text, pack)
+import Data.Twiddle
+import Data.Void (Void)
+import GHC.Exts (the)
 import Numeric.Natural (Natural)
 import qualified Plutus.V1.Ledger.Api as PV1
 import qualified Plutus.V2.Ledger.Api as PV2
@@ -324,3 +331,38 @@ instance Mock c => Arbitrary (ScriptIntegrity (AlonzoEra c)) where
       <$> arbitrary
       <*> genData
       <*> (Set.singleton <$> (getLanguageView @(AlonzoEra c) <$> arbitrary <*> arbitrary))
+
+instance (Era era, Val (Value era), DecodeNonNegative (Value era)) => Twiddle (AlonzoTxOut era) where
+  twiddle = pure . toTerm
+
+instance C.Crypto crypto => Twiddle (AlonzoTxBody (AlonzoEra crypto)) where
+  twiddle txBody = do
+    inputs' <- twiddle $ inputs txBody
+    outputs' <- twiddle $ outputs txBody
+    fee' <- twiddle $ txfee txBody
+    mp <- elements [TMap, TMapI]
+    let toColl x = [(TInt 13, x)]
+    -- Empty collateral can be represented by empty set or the
+    -- value can be omitted entirely
+    collateral' <-
+      if null $ collateral txBody
+        then
+          oneof
+            [ toColl <$> twiddle @(Set Void) Set.empty, -- Empty set case
+              pure [] -- Omission case
+            ]
+        else toColl <$> twiddle (collateral txBody)
+    pure . mp $
+      [ (TInt 0, inputs'),
+        (TInt 1, outputs'),
+        (TInt 2, fee')
+      ]
+        <> mconcat
+          [ collateral'
+          ]
+
+instance C.Crypto c => Twiddle (TxIn c) where
+  twiddle = pure . toTerm
+
+instance Twiddle Coin where
+  twiddle = pure . toTerm

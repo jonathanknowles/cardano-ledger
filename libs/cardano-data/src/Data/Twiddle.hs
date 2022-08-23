@@ -8,21 +8,17 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE EmptyCase #-}
 
-module Test.Cardano.Ledger.Twiddle
+module Data.Twiddle
   ( Twiddler (unTwiddler),
     Twiddle (..),
+    toTwiddler,
+    toTerm,
   )
 where
 
-import Cardano.Binary (ToCBOR (..))
-import Cardano.Ledger.Alonzo (AlonzoTxBody, AlonzoTxOut)
-import Cardano.Ledger.Alonzo.TxBody (AlonzoTxBody (..))
-import Cardano.Ledger.Coin (Coin)
-import Cardano.Ledger.Core (Era, EraTxBody, Value)
-import Cardano.Ledger.Crypto (Crypto)
-import Cardano.Ledger.TxIn (TxIn (..))
-import Cardano.Ledger.Val (DecodeNonNegative, Val)
+import Cardano.Binary (ToCBOR (..), FromCBOR (..))
 import Codec.CBOR.Read (deserialiseFromBytes)
 import Codec.CBOR.Term (Term (..), decodeTerm, encodeTerm)
 import Codec.CBOR.Write (toLazyByteString)
@@ -40,10 +36,11 @@ import qualified Data.Text.Lazy as T
 import Data.Typeable (Typeable)
 import GHC.Generics
 import Test.QuickCheck (Arbitrary (..), Gen, elements, shuffle)
+import Data.Void (Void, absurd)
 
 data Twiddler a = Twiddler
   { unTwiddler :: !a,
-    _unEnc :: !Term
+    _unEnc :: Term
   }
 
 gTwiddleTList :: forall a p. (Generic a, TwiddleL' (Rep a p)) => a -> Gen Term
@@ -62,8 +59,7 @@ instance Twiddle a => Twiddle [a] where
 
 instance (Twiddle k, Twiddle v) => Twiddle (Map k v) where
   twiddle m = do
-    -- Elements of a map do not have to be in a specific order,
-    -- so we shuffle them
+    -- Elements of a map do not have to be in a specific order so we shuffle them
     m' <- shuffle $ Map.toList m
     m'' <- traverse (bimapM twiddle twiddle) m'
     f <- elements [TMap, TMapI]
@@ -103,6 +99,11 @@ instance Twiddle a => Twiddle (StrictSeq a) where
 instance Typeable a => ToCBOR (Twiddler a) where
   toCBOR (Twiddler _ x) = encodeTerm x
 
+instance (Typeable a, ToCBOR a, FromCBOR a) => FromCBOR (Twiddler a) where
+  fromCBOR = f <$> fromCBOR
+    where
+      f x = Twiddler x $ toTerm x
+
 instance Show a => Show (Twiddler a) where
   show (Twiddler x _) = "Twiddler " <> show x
 
@@ -137,27 +138,8 @@ instance (TwiddleL' (f p)) => TwiddleL' (M1 i c f p) where
 instance Twiddle Integer where
   twiddle = pure . TInteger
 
-instance Crypto c => Twiddle (TxIn c) where
-  twiddle = pure . toTerm
-
-instance (Era era, Val (Value era), DecodeNonNegative (Value era)) => Twiddle (AlonzoTxOut era) where
-  twiddle = pure . toTerm
-
-instance Twiddle Coin where
-  twiddle = pure . toTerm
-
-instance EraTxBody era => Twiddle (AlonzoTxBody era) where
-  twiddle txBody = do
-    inputs' <- twiddle $ inputs txBody
-    outputs' <- twiddle $ outputs txBody
-    fee' <- twiddle $ txfee txBody
-    optionalFields <- undefined
-    pure . TMap $
-      [ (TInt 0, inputs'),
-        (TInt 1, outputs'),
-        (TInt 2, fee')
-      ]
-        <> optionalFields
+instance Twiddle Void where
+  twiddle = absurd
 
 toTerm :: ToCBOR a => a -> Term
 toTerm enc = case res of
@@ -165,3 +147,6 @@ toTerm enc = case res of
   Left err -> error $ show err
   where
     res = deserialiseFromBytes decodeTerm . toLazyByteString $ toCBOR enc
+
+toTwiddler :: Twiddle a => a -> Gen (Twiddler a)
+toTwiddler x = Twiddler x <$> twiddle x

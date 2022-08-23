@@ -10,6 +10,7 @@ module Data.Roundtrip
     embedTrip,
     embedTrip',
     roundTripAnn,
+    roundTripAnnWithTwiddling,
     embedTripAnn,
     RoundTripResult,
   )
@@ -29,6 +30,8 @@ import Codec.CBOR.Read
   )
 import Codec.CBOR.Write (toLazyByteString)
 import qualified Data.ByteString.Lazy as Lazy
+import Data.Twiddle (Twiddle (..), toTwiddler)
+import Test.QuickCheck (Gen)
 
 -- =====================================================================
 
@@ -41,11 +44,21 @@ roundTrip' :: (t -> Encoding) -> (forall s. Decoder s t) -> t -> RoundTripResult
 roundTrip' enc dec t = deserialiseFromBytes dec (toLazyByteString (enc t))
 
 roundTripAnn :: (ToCBOR t, FromCBOR (Annotator t)) => t -> RoundTripResult t
-roundTripAnn s =
-  let bytes = toLazyByteString (toCBOR s)
-   in case deserialiseFromBytes fromCBOR bytes of
-        Left err -> Left err
-        Right (leftover, Annotator f) -> Right (leftover, f (Full bytes))
+roundTripAnn s = roundTripAnn' $ toLazyByteString (toCBOR s)
+
+roundTripAnnWithTwiddling ::
+  forall t.
+  (Twiddle t, ToCBOR t, FromCBOR (Annotator t)) =>
+  t ->
+  Gen (RoundTripResult t)
+roundTripAnnWithTwiddling x = do
+  tw <- toCBOR <$> toTwiddler x
+  pure $ roundTripAnn' $ toLazyByteString tw
+
+roundTripAnn' :: FromCBOR (Annotator t) => Lazy.ByteString -> RoundTripResult t
+roundTripAnn' bytes = case deserialiseFromBytes fromCBOR bytes of
+  Left err -> Left err
+  Right (leftover, Annotator f) -> Right (leftover, f (Full bytes))
 
 -- | Can we serialise a type, and then deserialise it as something else?
 embedTrip :: (ToCBOR t, FromCBOR s) => t -> RoundTripResult s

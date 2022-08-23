@@ -11,26 +11,33 @@ import Cardano.Ledger.Alonzo.Data (BinaryData, Data (..))
 import Cardano.Ledger.Alonzo.Rules (AlonzoUtxoPredFailure, AlonzoUtxosPredFailure, AlonzoUtxowPredFailure)
 import Cardano.Ledger.Alonzo.Scripts (CostModels)
 import Cardano.Ledger.Alonzo.TxWitness (TxWitness)
+import Cardano.Ledger.Alonzo.TxBody ()
 import Cardano.Ledger.Block (Block)
 import Cardano.Ledger.Core
 import Cardano.Ledger.Shelley.Metadata (Metadata)
 import Cardano.Protocol.TPraos.BHeader (BHeader)
 import qualified Data.ByteString.Base16.Lazy as Base16
 import qualified Data.ByteString.Lazy.Char8 as BSL
-import Data.Roundtrip (roundTrip, roundTripAnn)
+import Data.Roundtrip (roundTrip, roundTripAnn, roundTripAnnWithTwiddling)
 import Test.Cardano.Ledger.Alonzo.Serialisation.Generators ()
 import Test.Cardano.Ledger.Shelley.ConcreteCryptoTypes
 import Test.Cardano.Ledger.ShelleyMA.Serialisation.Generators ()
 import Test.Tasty
 import Test.Tasty.QuickCheck
+import Data.Twiddle (Twiddle)
+import Data.Functor.Identity (Identity(..))
 
 trippingF ::
   (Eq src, Show src, Show target, ToCBOR src) =>
   (src -> Either target (BSL.ByteString, src)) ->
   src ->
   Property
-trippingF f x =
-  case f x of
+trippingF f x = runIdentity $ trippingM (pure . f) x
+
+trippingM :: (Monad m, Eq src, Show src, Show target, ToCBOR src) => (src -> m (Either target (BSL.ByteString, src))) -> src -> m Property
+trippingM f x = do
+  res <- f x
+  pure $ case res of
     Right (remaining, y)
       | BSL.null remaining ->
           x === y
@@ -59,6 +66,9 @@ trippingAnn ::
   Property
 trippingAnn = trippingF roundTripAnn
 
+trippingAnnWithTwiddling :: (Twiddle t, Eq t, Show t, ToCBOR t, FromCBOR (Annotator t)) => t -> Property
+trippingAnnWithTwiddling = property . trippingM roundTripAnnWithTwiddling
+
 tripping :: (Eq src, Show src, ToCBOR src, FromCBOR src) => src -> Property
 tripping = trippingF roundTrip
 
@@ -78,6 +88,8 @@ tests =
         trippingAnn @(TxWitness (AlonzoEra C_Crypto)),
       testProperty "alonzo/TxBody" $
         trippingAnn @(TxBody (AlonzoEra C_Crypto)),
+      testProperty "alonzo/TxBody twiddled" $
+        trippingAnnWithTwiddling @(TxBody (AlonzoEra C_Crypto)),
       testProperty "alonzo/CostModels" $
         tripping @CostModels,
       testProperty "alonzo/PParams" $
