@@ -578,19 +578,19 @@ deriving via
 
 pattern AlonzoTxBody ::
   EraTxBody era =>
-  Set (TxIn (Crypto era)) ->
-  Set (TxIn (Crypto era)) ->
-  StrictSeq (AlonzoTxOut era) ->
-  StrictSeq (DCert (Crypto era)) ->
-  Wdrl (Crypto era) ->
-  Coin ->
-  ValidityInterval ->
-  StrictMaybe (Update era) ->
-  Set (KeyHash 'Witness (Crypto era)) ->
-  MultiAsset (Crypto era) ->
-  StrictMaybe (ScriptIntegrityHash (Crypto era)) ->
-  StrictMaybe (AuxiliaryDataHash (Crypto era)) ->
-  StrictMaybe Network ->
+  Set (TxIn (Crypto era)) -> -- 0
+  Set (TxIn (Crypto era)) -> -- 13
+  StrictSeq (AlonzoTxOut era) -> -- 1
+  StrictSeq (DCert (Crypto era)) -> -- 4
+  Wdrl (Crypto era) -> -- 5
+  Coin -> -- 2
+  ValidityInterval -> -- 8, 3
+  StrictMaybe (Update era) -> -- 6
+  Set (KeyHash 'Witness (Crypto era)) -> -- 14
+  MultiAsset (Crypto era) -> -- 9
+  StrictMaybe (ScriptIntegrityHash (Crypto era)) -> -- 11
+  StrictMaybe (AuxiliaryDataHash (Crypto era)) -> -- 7
+  StrictMaybe Network -> -- 15
   AlonzoTxBody era
 pattern AlonzoTxBody
   { inputs,

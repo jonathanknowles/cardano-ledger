@@ -14,17 +14,18 @@ module Data.Twiddle
   ( Twiddler (unTwiddler),
     Twiddle (..),
     toTwiddler,
+    encodingToTerm,
     toTerm,
   )
 where
 
-import Cardano.Binary (ToCBOR (..), FromCBOR (..))
+import Cardano.Binary (ToCBOR (..), FromCBOR (..), Encoding)
 import Codec.CBOR.Read (deserialiseFromBytes)
 import Codec.CBOR.Term (Term (..), decodeTerm, encodeTerm)
 import Codec.CBOR.Write (toLazyByteString)
 import Data.Bitraversable (bimapM)
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy (fromStrict)
+import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -141,12 +142,43 @@ instance Twiddle Integer where
 instance Twiddle Void where
   twiddle = absurd
 
-toTerm :: ToCBOR a => a -> Term
-toTerm enc = case res of
+instance Twiddle Bool where
+  twiddle = pure . TBool
+
+instance Twiddle Float where
+  twiddle = pure . TFloat
+
+instance Twiddle Double where
+  twiddle = pure . TDouble
+
+instance Twiddle Term where
+  twiddle (TInt n) = twiddle n
+  twiddle (TInteger n) = twiddle n
+  twiddle (TBytes bs) = twiddle bs
+  twiddle (TBytesI bs) = twiddle $ toStrict bs
+  twiddle (TString txt) = twiddle txt
+  twiddle (TStringI txt) = twiddle $ T.toStrict txt
+  twiddle (TList tes) = twiddle tes
+  twiddle (TListI tes) = twiddle tes
+  twiddle (TMap x0) = twiddle $ Map.fromList x0
+  twiddle (TMapI x0) = twiddle $ Map.fromList x0
+  twiddle (TTagged wo te') = TTagged wo <$> twiddle te'
+  twiddle (TBool b) = twiddle b
+  twiddle TNull = pure TNull
+  twiddle (TSimple wo) = pure $ TSimple wo
+  twiddle (THalf x) = pure $ THalf x
+  twiddle (TFloat x) = twiddle x
+  twiddle (TDouble x) = twiddle x
+
+encodingToTerm :: Encoding -> Term
+encodingToTerm enc = case res of
   Right (_, t) -> t
   Left err -> error $ show err
   where
-    res = deserialiseFromBytes decodeTerm . toLazyByteString $ toCBOR enc
+    res = deserialiseFromBytes decodeTerm $ toLazyByteString enc
+
+toTerm :: ToCBOR a => a -> Term
+toTerm = encodingToTerm . toCBOR
 
 toTwiddler :: Twiddle a => a -> Gen (Twiddler a)
 toTwiddler x = Twiddler x <$> twiddle x
