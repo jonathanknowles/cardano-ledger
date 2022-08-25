@@ -34,10 +34,12 @@ import Cardano.Ledger.Core hiding (TranslationError)
 import Cardano.Ledger.Pretty.Babbage ()
 import Cardano.Ledger.SafeHash (hashAnnotated)
 import Cardano.Ledger.Shelley.API
-  ( ProtVer (..),
+  ( Coin (..),
+    ProtVer (..),
     UTxO (..),
   )
 import Cardano.Ledger.Shelley.UTxO (makeWitnessVKey)
+import Cardano.Ledger.Val (inject)
 import Cardano.Slotting.EpochInfo (EpochInfo, fixedEpochInfo)
 import Cardano.Slotting.Slot (EpochSize (..))
 import Cardano.Slotting.Time (SystemStart (..), mkSlotLength)
@@ -46,18 +48,20 @@ import Data.Either (fromRight)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import qualified Plutus.V1.Ledger.Api as Plutus
 import Test.Cardano.Ledger.Examples.STSTestUtils
-  ( datumExample1,
-    freeCostModelV1,
+  ( freeCostModelV1,
     initUTxO,
     mkGenesisTxIn,
-    redeemerExample1,
+    mkTxDats,
+    someAddr,
     someKeys,
-    validatingBody,
   )
 import Test.Cardano.Ledger.Generic.Fields
   ( PParamsField (..),
+    TxBodyField (..),
     TxField (..),
+    TxOutField (..),
     WitnessesField (..),
   )
 import Test.Cardano.Ledger.Generic.PrettyCore ()
@@ -83,7 +87,7 @@ collectTwoPhaseScriptInputsOutputOrdering =
     @?= Right
       [ ( sbs,
           lang,
-          [datumExample1, redeemerExample1, context],
+          [datum, redeemer, context],
           ExUnits 5000 5000,
           freeCostModelV1
         )
@@ -107,7 +111,49 @@ collectTwoPhaseScriptInputsOutputOrdering =
         )
         (Spending $ mkGenesisTxIn 1)
 
--- =========================
+-- ============================== DATA ===============================
+
+datum :: Era era => Data era
+datum = Data (Plutus.I 123)
+
+redeemer :: Era era => Data era
+redeemer = Data (Plutus.I 42)
+
+validatingTx ::
+  forall era.
+  ( Scriptic era,
+    EraTx era,
+    GoodCrypto (Crypto era)
+  ) =>
+  Proof era ->
+  Tx era
+validatingTx pf =
+  newTx
+    pf
+    [ Body validatingBody,
+      WitnessesI
+        [ AddrWits' [makeWitnessVKey (hashAnnotated validatingBody) (someKeys pf)],
+          ScriptWits' [always 3 pf],
+          DataWits' [datum],
+          RdmrWits redeemers
+        ]
+    ]
+  where
+    validatingBody =
+      newTxBody
+        pf
+        [ Inputs' [mkGenesisTxIn 1],
+          Collateral' [mkGenesisTxIn 11],
+          Outputs' [newTxOut pf [Address (someAddr pf), Amount (inject $ Coin 4995)]],
+          Txfee (Coin 5),
+          WppHash (newScriptIntegrityHash pf (pp pf) [PlutusV1] redeemers (mkTxDats datum))
+        ]
+    redeemers =
+      Redeemers $
+        Map.singleton (RdmrPtr Tag.Spend 0) (redeemer, ExUnits 5000 5000)
+
+-- ============================== Helper functions ===============================
+
 -- We have some tests that use plutus scripts, so they can only be run in
 -- Babbage and Alonzo. How do we do that? We identify functions that are
 -- only well typed in those Eras, and we make versions which are parameterized
@@ -149,8 +195,7 @@ testEpochInfo = fixedEpochInfo (EpochSize 100) (mkSlotLength 1)
 testSystemStart :: SystemStart
 testSystemStart = SystemStart $ posixSecondsToUTCTime 0
 
-pp :: Proof era -> PParams era
-pp pf = newPParams pf defaultPPs
+-- ============================== PParams ===============================
 
 defaultPPs :: [PParamsField era]
 defaultPPs =
@@ -162,27 +207,5 @@ defaultPPs =
     CollateralPercentage 100
   ]
 
-validatingTx ::
-  forall era.
-  ( Scriptic era,
-    EraTx era,
-    GoodCrypto (Crypto era)
-  ) =>
-  Proof era ->
-  Tx era
-validatingTx pf =
-  newTx
-    pf
-    [ Body (validatingBody pf),
-      WitnessesI
-        [ AddrWits' [makeWitnessVKey (hashAnnotated (validatingBody pf)) (someKeys pf)],
-          ScriptWits' [always 3 pf],
-          DataWits' [datumExample1],
-          RdmrWits validatingRedeemersEx1
-        ]
-    ]
-
-validatingRedeemersEx1 :: Era era => Redeemers era
-validatingRedeemersEx1 =
-  Redeemers $
-    Map.singleton (RdmrPtr Tag.Spend 0) (redeemerExample1, ExUnits 5000 5000)
+pp :: Proof era -> PParams era
+pp pf = newPParams pf defaultPPs
