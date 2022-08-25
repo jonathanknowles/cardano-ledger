@@ -30,8 +30,10 @@ import Codec.CBOR.Read
   )
 import Codec.CBOR.Write (toLazyByteString)
 import qualified Data.ByteString.Lazy as Lazy
-import Data.Twiddle (Twiddle (..), toTwiddler)
+import Data.Twiddle (Twiddle (..))
 import Test.QuickCheck (Gen)
+import Codec.CBOR.Term (encodeTerm)
+import qualified Data.ByteString.Lazy as LBS
 
 -- =====================================================================
 
@@ -48,12 +50,13 @@ roundTripAnn s = roundTripAnn' $ toLazyByteString (toCBOR s)
 
 roundTripAnnWithTwiddling ::
   forall t.
-  (Twiddle t, ToCBOR t, FromCBOR (Annotator t)) =>
+  (Twiddle t, FromCBOR (Annotator t)) =>
   t ->
-  Gen (RoundTripResult t)
+  Gen (RoundTripResult t, LBS.ByteString)
 roundTripAnnWithTwiddling x = do
-  tw <- toCBOR <$> toTwiddler x
-  pure $ roundTripAnn' $ toLazyByteString tw
+  tw <- encodeTerm <$> twiddle x
+  let bs = toLazyByteString tw
+  pure (roundTripAnn' bs, bs)
 
 roundTripAnn' :: FromCBOR (Annotator t) => Lazy.ByteString -> RoundTripResult t
 roundTripAnn' bytes = case deserialiseFromBytes fromCBOR bytes of

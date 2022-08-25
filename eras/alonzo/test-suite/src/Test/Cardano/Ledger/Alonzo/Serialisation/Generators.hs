@@ -44,7 +44,7 @@ import Cardano.Ledger.ShelleyMA.Timelocks (ValidityInterval (..))
 import Cardano.Ledger.TxIn (TxIn)
 import Cardano.Ledger.Val (DecodeNonNegative, Val, EncodeMint (..))
 import Cardano.Slotting.Slot (SlotNo)
-import Codec.CBOR.Term (Term (..))
+import Codec.CBOR.Term (Term (..), encodeTerm)
 import Data.Int (Int64)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
@@ -67,6 +67,8 @@ import Cardano.Ledger.Shelley.PParams (Update)
 import Cardano.Ledger.Mary.Value (MultiAsset)
 import Cardano.Ledger.Keys (KeyHash)
 import Data.Typeable (Typeable)
+import Debug.Trace (traceM)
+import Codec.CBOR.Write (toLazyByteString)
 
 instance Era era => Arbitrary (Data era) where
   arbitrary = Data <$> arbitrary
@@ -395,9 +397,16 @@ instance (C.Crypto crypto, Typeable t) => Twiddle (KeyHash t crypto) where
 instance Twiddle Network where
   twiddle = twiddle . toTerm
 
+instance C.Crypto c => Twiddle (TxIn c) where
+  twiddle = twiddle . toTerm
+
+instance Twiddle Coin where
+  twiddle = twiddle . toTerm
+
 instance C.Crypto crypto => Twiddle (AlonzoTxBody (AlonzoEra crypto)) where
   twiddle txBody = do
     inputs' <- twiddle $ inputs txBody
+    traceM $ "inputs': " <> (show  . toLazyByteString $ encodeTerm inputs')
     outputs' <- twiddle $ outputs txBody
     fee' <- twiddle $ txfee txBody
     -- Empty collateral can be represented by empty set or the
@@ -432,9 +441,3 @@ instance C.Crypto crypto => Twiddle (AlonzoTxBody (AlonzoEra crypto)) where
             (TInt 14,) <$> requiredSigners',
             (TInt 15,) <$> networkId'
           ]
-
-instance C.Crypto c => Twiddle (TxIn c) where
-  twiddle = twiddle . toTerm
-
-instance Twiddle Coin where
-  twiddle = pure . toTerm
