@@ -11,7 +11,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Test.Cardano.Ledger.Examples.TwoPhaseValidation where
+module Test.Cardano.Ledger.Examples.TwoPhaseValidationLib where
 
 import qualified Cardano.Crypto.Hash as CH
 import Cardano.Crypto.Hash.Class (sizeHash)

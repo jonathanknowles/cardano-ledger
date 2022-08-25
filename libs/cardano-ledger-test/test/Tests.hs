@@ -11,12 +11,11 @@ import Data.Default.Class (Default (def))
 import System.IO (hSetEncoding, stdout, utf8)
 import qualified Test.Cardano.Ledger.Alonzo.Tools as Tools
 import Test.Cardano.Ledger.BaseTypes (baseTypesTests)
+import qualified Test.Cardano.Ledger.Examples.AlonzoAPI as AlonzoAPI (tests)
+import qualified Test.Cardano.Ledger.Examples.AlonzoBBODY as AlonzoBBODY (tests)
+import qualified Test.Cardano.Ledger.Examples.AlonzoCollectInputs as AlonzoCollectInputs (tests)
+import qualified Test.Cardano.Ledger.Examples.AlonzoUTXOW as AlonzoUTXOW (tests)
 import Test.Cardano.Ledger.Examples.BabbageFeatures (babbageFeatures)
-import Test.Cardano.Ledger.Examples.TwoPhaseValidation
-  ( allTrees,
-    alonzoAPITests,
-    collectOrderingAlonzo,
-  )
 import Test.Cardano.Ledger.Generic.AggPropTests (aggTests)
 import Test.Cardano.Ledger.Generic.Properties (genericProperties)
 import Test.Cardano.Ledger.Model.Properties (modelUnitTests_)
@@ -38,10 +37,11 @@ mainTestTrees =
     Tools.tests,
     testGroup
       "STS Tests"
-      [ allTrees,
-        babbageFeatures,
-        alonzoAPITests,
-        collectOrderingAlonzo,
+      [ babbageFeatures,
+        AlonzoUTXOW.tests,
+        AlonzoBBODY.tests,
+        AlonzoAPI.tests,
+        AlonzoCollectInputs.tests,
         modelUnitTests_
       ],
     genericProperties def,
