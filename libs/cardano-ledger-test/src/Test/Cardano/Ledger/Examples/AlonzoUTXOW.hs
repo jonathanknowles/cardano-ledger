@@ -13,10 +13,8 @@
 
 module Test.Cardano.Ledger.Examples.AlonzoUTXOW (tests) where
 
-import Cardano.Ledger.Address (Addr (..))
 import Cardano.Ledger.Alonzo.Data (Data (..), hashData)
 import Cardano.Ledger.Alonzo.Language (Language (..))
-import Cardano.Ledger.Alonzo.PParams (AlonzoPParamsHKD (..))
 import Cardano.Ledger.Alonzo.PlutusScriptApi (CollectError (..))
 import Cardano.Ledger.Alonzo.Rules
   ( AlonzoUtxoPredFailure (..),
@@ -35,9 +33,6 @@ import Cardano.Ledger.Alonzo.Tx
     ScriptPurpose (..),
   )
 import Cardano.Ledger.Alonzo.TxWitness (RdmrPtr (..), Redeemers (..), TxDats (..), unRedeemers)
-import qualified Cardano.Ledger.Babbage.PParams as Babbage (BabbagePParamsHKD (..))
-import Cardano.Ledger.Babbage.Rules (BabbageUtxoPredFailure (..))
-import Cardano.Ledger.Babbage.Rules as Babbage (BabbageUtxowPredFailure (..))
 import Cardano.Ledger.BaseTypes
   ( Network (..),
     StrictMaybe (..),
@@ -50,19 +45,16 @@ import Cardano.Ledger.Core hiding (TranslationError)
 import Cardano.Ledger.Credential
   ( Credential (..),
     StakeCredential,
-    StakeReference (..),
   )
 import qualified Cardano.Ledger.Crypto as CC
 import Cardano.Ledger.Keys
-  ( GenDelegs (..),
-    KeyHash,
+  ( KeyHash,
     KeyPair (..),
     KeyRole (..),
     asWitness,
     hashKey,
   )
 import Cardano.Ledger.Mary.Value (MaryValue (..), MultiAsset (..))
-import Cardano.Ledger.Pretty
 import Cardano.Ledger.Pretty.Babbage ()
 import Cardano.Ledger.SafeHash (hashAnnotated)
 import Cardano.Ledger.Shelley.API
@@ -73,8 +65,6 @@ import Cardano.Ledger.Shelley.LedgerState
   ( UTxOState (..),
     smartUTxOState,
   )
-import Cardano.Ledger.Shelley.PParams (ShelleyPParamsHKD (..))
-import Cardano.Ledger.Shelley.Rules.Utxo (UtxoEnv (..))
 import Cardano.Ledger.Shelley.Rules.Utxow as Shelley (ShelleyUtxowPredFailure (..))
 import Cardano.Ledger.Shelley.TxBody
   ( DCert (..),
@@ -89,26 +79,29 @@ import Cardano.Ledger.Val (inject, (<+>))
 import Cardano.Slotting.Slot (SlotNo (..))
 import Control.State.Transition.Extended hiding (Assertion)
 import Data.Default.Class (Default (..))
-import qualified Data.List as List
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import GHC.Stack
-import Numeric.Natural (Natural)
 import qualified Plutus.V1.Ledger.Api as Plutus
 import Test.Cardano.Ledger.Examples.STSTestUtils
   ( AlonzoBased (..),
+    alwaysFailsHash,
+    alwaysSucceedsHash,
     datumExample1,
     freeCostModelV1,
     initUTxO,
     keyBy,
     mkGenesisTxIn,
-    notValidatingTx,
+    mkTxDats,
     redeemerExample1,
+    someAddr,
     someKeys,
+    someScriptAddr,
     testUTXOW,
+    testUTXOWsubset,
+    testUTXOspecialCase,
     trustMeP,
-    validatingBody,
   )
 import Test.Cardano.Ledger.Generic.Fields
   ( PParamsField (..),
@@ -127,7 +120,7 @@ import Test.Cardano.Ledger.Shelley.Utils
     mkKeyPair,
   )
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, testCase, (@?=))
+import Test.Tasty.HUnit (Assertion, testCase)
 
 tests :: TestTree
 tests =
@@ -161,12 +154,12 @@ alonzoUTXOWexamplesB pf =
             testU
               pf
               (trustMeP pf True $ validatingTx pf)
-              (Right . utxoStEx1 $ pf),
+              (Right . validatingTxState $ pf),
           testCase "not validating SPEND script" $
             testU
               pf
               (trustMeP pf False $ notValidatingTx pf)
-              (Right . utxoStEx2 $ pf),
+              (Right . notValidatingState $ pf),
           testCase "validating CERT script" $
             testU
               pf
@@ -340,7 +333,7 @@ alonzoUTXOWexamplesB pf =
               ( Left [fromUtxos @era (ValidationTagMismatch (IsValid False) PassedUnexpectedly)]
               ),
           testCase "invalid transaction marked as valid" $
-            specialCase
+            testUTXOspecialCase
               (UTXOW pf)
               (initUTxO pf)
               (pp pf)
@@ -435,121 +428,113 @@ alonzoUTXOWexamplesB pf =
         ]
     ]
 
--- =======================
--- Setup the initial state
--- =======================
-
-defaultPPs :: [PParamsField era]
-defaultPPs =
-  [ Costmdls . CostModels $ Map.singleton PlutusV1 freeCostModelV1,
-    MaxValSize 1000000000,
-    MaxTxExUnits $ ExUnits 1000000 1000000,
-    MaxBlockExUnits $ ExUnits 1000000 1000000,
-    ProtocolVersion $ ProtVer 5 0,
-    CollateralPercentage 100
-  ]
-
-utxoEnv :: PParams era -> UtxoEnv era
-utxoEnv pparams =
-  UtxoEnv
-    (SlotNo 0)
-    pparams
-    mempty
-    (GenDelegs mempty)
-
--- | Create an address with a given payment script.
--- The proof here is used only as a Proxy.
-scriptAddr :: forall era. (Scriptic era) => Script era -> Proof era -> Addr (Crypto era)
-scriptAddr s _pf = Addr Testnet pCred sCred
-  where
-    pCred = ScriptHashObj . hashScript @era $ s
-    (_ssk, svk) = mkKeyPair @(Crypto era) (RawSeed 0 0 0 0 0)
-    sCred = StakeRefBase . KeyHashObj . hashKey $ svk
-
-someAddr :: forall era. Era era => Proof era -> Addr (Crypto era)
-someAddr pf = Addr Testnet pCred sCred
-  where
-    (_ssk, svk) = mkKeyPair @(Crypto era) (RawSeed 0 0 0 0 2)
-    pCred = KeyHashObj . hashKey . vKey $ someKeys pf
-    sCred = StakeRefBase . KeyHashObj . hashKey $ svk
-
-alwaysSucceedsHash ::
-  forall era.
-  Scriptic era =>
-  Natural ->
-  Proof era ->
-  ScriptHash (Crypto era)
-alwaysSucceedsHash n pf = hashScript @era $ always n pf
-
-alwaysFailsHash :: forall era. Scriptic era => Natural -> Proof era -> ScriptHash (Crypto era)
-alwaysFailsHash n pf = hashScript @era $ never n pf
-
-timelockScript :: PostShelley era => Int -> Proof era -> Script era
-timelockScript s = allOf [matchkey 1, after (100 + s)]
-
-timelockHash ::
-  forall era.
-  PostShelley era =>
-  Int ->
-  Proof era ->
-  ScriptHash (Crypto era)
-timelockHash n pf = hashScript @era $ timelockScript n pf
-
-initialUtxoSt ::
-  (Default (State (EraRule "PPUP" era)), EraTxOut era) =>
-  UTxO era ->
-  UTxOState era
-initialUtxoSt utxo = smartUTxOState utxo (Coin 0) (Coin 0) def
-
--- | This is a helper type for the expectedUTxO function.
---  ExpectSuccess indicates that we created a valid transaction
---  where the IsValid flag is true.
-data Expect era
-  = ExpectSuccess (TxBody era) (TxOut era)
-  | ExpectSuccessInvalid
-  | ExpectFailure
-
--- | In each of our main eight examples, the UTxO map obtained
--- by applying the transaction is straightforward. This function
--- captures the logic.
---
--- Each example transaction (given a number i) will use
--- (TxIn genesisId (10+i), someOutput) for its' single input,
--- and (TxIn genesisId i, collateralOutput) for its' single collateral output.
---
--- If we expect the transaction script to validate, then
--- the UTxO for (TxIn genesisId i) will be consumed and a UTxO will be created.
--- Otherwise, the UTxO for (TxIn genesisId (10+i)) will be consumed.
-expectedUTxO ::
-  forall era.
-  (HasCallStack, EraTxBody era) =>
-  UTxO era ->
-  Expect era ->
-  Integer ->
-  UTxO era
-expectedUTxO initUtxo ex idx = UTxO utxo
-  where
-    utxo = case ex of
-      ExpectSuccess txb newOut ->
-        Map.insert (TxIn (txid txb) minBound) newOut (filteredUTxO (mkTxIxPartial idx))
-      ExpectSuccessInvalid -> filteredUTxO (mkTxIxPartial idx)
-      ExpectFailure -> filteredUTxO (mkTxIxPartial (10 + idx))
-    filteredUTxO :: TxIx -> Map.Map (TxIn (Crypto era)) (TxOut era)
-    filteredUTxO x = Map.filterWithKey (\(TxIn _ i) _ -> i /= x) $ unUTxO initUtxo
-
-expectedUTxO' ::
-  (HasCallStack, EraTxBody era, PostShelley era) =>
-  Proof era ->
-  Expect era ->
-  Integer ->
-  UTxO era
-expectedUTxO' pf ex idx = expectedUTxO (initUTxO pf) ex idx
-
-pp :: Proof era -> PParams era
-pp pf = newPParams pf defaultPPs
+-- =========================================================================
+-- ============================== DATA ========================================
 
 -- =========================================================================
 --  Example 1: Process a SPEND transaction with a succeeding Plutus script.
+-- =========================================================================
+
+validatingTx ::
+  forall era.
+  ( Scriptic era,
+    EraTx era,
+    GoodCrypto (Crypto era)
+  ) =>
+  Proof era ->
+  Tx era
+validatingTx pf =
+  newTx
+    pf
+    [ Body (validatingBody pf),
+      WitnessesI
+        [ AddrWits' [makeWitnessVKey (hashAnnotated (validatingBody pf)) (someKeys pf)],
+          ScriptWits' [always 3 pf],
+          DataWits' [datumExample1],
+          RdmrWits validatingRedeemers
+        ]
+    ]
+
+validatingBody :: (Scriptic era, EraTxBody era) => Proof era -> TxBody era
+validatingBody pf =
+  newTxBody
+    pf
+    [ Inputs' [mkGenesisTxIn 1],
+      Collateral' [mkGenesisTxIn 11],
+      Outputs' [validatingTxOut pf],
+      Txfee (Coin 5),
+      WppHash (newScriptIntegrityHash pf (pp pf) [PlutusV1] validatingRedeemersEx1 txDatsExample1)
+    ]
+
+validatingRedeemers :: Era era => Redeemers era
+validatingRedeemers = Redeemers $ Map.singleton (RdmrPtr Tag.Spend 0) (Data (Plutus.I 42), ExUnits 5000 5000)
+
+validatingTxOut :: EraTxOut era => Proof era -> TxOut era
+validatingTxOut pf = newTxOut pf [Address (someAddr pf), Amount (inject $ Coin 4995)]
+
+validatingTxState ::
+  forall era.
+  (Default (State (EraRule "PPUP" era)), EraTxBody era, PostShelley era) =>
+  Proof era ->
+  UTxOState era
+validatingTxState pf = smartUTxOState utxoEx1 (Coin 0) (Coin 5) def
+  where
+    utxoEx1 = expectedUTxO' pf (ExpectSuccess (validatingBody pf) (outEx1 pf)) 1
+
+-- ======================================================================
+--  Example 2: Process a SPEND transaction with a failing Plutus script.
+-- ======================================================================
+datumExample2 :: Era era => Data era
+datumExample2 = Data (Plutus.I 0)
+
+notValidatingTx ::
+  ( Scriptic era,
+    EraTx era,
+    GoodCrypto (Crypto era)
+  ) =>
+  Proof era ->
+  Tx era
+notValidatingTx pf =
+  newTx
+    pf
+    [ Body (notValidatingBody pf),
+      WitnessesI
+        [ AddrWits' [makeWitnessVKey (hashAnnotated (notValidatingBody pf)) (someKeys pf)],
+          ScriptWits' [never 0 pf],
+          DataWits' [datumExample2],
+          RdmrWits notValidatingRedeemers
+        ]
+    ]
+
+notValidatingBody :: (Scriptic era, EraTxBody era) => Proof era -> TxBody era
+notValidatingBody pf =
+  newTxBody
+    pf
+    [ Inputs' [mkGenesisTxIn 2],
+      Collateral' [mkGenesisTxIn 12],
+      Outputs' [newTxOut pf [Address (someAddr pf), Amount (inject $ Coin 2995)]],
+      Txfee (Coin 5),
+      WppHash (newScriptIntegrityHash pf (pp pf) [PlutusV1] notValidatingRedeemers (mkTxDats datumExample2))
+    ]
+
+notValidatingRedeemers :: Era era => Redeemers era
+notValidatingRedeemers =
+  Redeemers
+    ( Map.fromList
+        [ ( RdmrPtr Tag.Spend 0,
+            (Data (Plutus.I 1), ExUnits 5000 5000)
+          )
+        ]
+    )
+
+notValidatingState ::
+  (Default (State (EraRule "PPUP" era)), EraTxBody era, PostShelley era) =>
+  Proof era ->
+  UTxOState era
+notValidatingState pf = smartUTxOState (expectedUTxO' pf ExpectFailure 2) (Coin 0) (Coin 5) def
+
+-- =========================================================================
+--  Example 3: Process a CERT transaction with a succeeding Plutus script.
 -- =========================================================================
 
 txDatsExample1 :: Era era => TxDats era
@@ -598,53 +583,6 @@ extraRedeemersTx pf =
 
 outEx1 :: EraTxOut era => Proof era -> TxOut era
 outEx1 pf = newTxOut pf [Address (someAddr pf), Amount (inject $ Coin 4995)]
-
-validatingTx ::
-  forall era.
-  ( Scriptic era,
-    EraTx era,
-    GoodCrypto (Crypto era)
-  ) =>
-  Proof era ->
-  Tx era
-validatingTx pf =
-  newTx
-    pf
-    [ Body (validatingBody pf),
-      WitnessesI
-        [ AddrWits' [makeWitnessVKey (hashAnnotated (validatingBody pf)) (someKeys pf)],
-          ScriptWits' [always 3 pf],
-          DataWits' [datumExample1],
-          RdmrWits validatingRedeemersEx1
-        ]
-    ]
-
-utxoEx1 :: forall era. (PostShelley era, EraTxBody era) => Proof era -> UTxO era
-utxoEx1 pf = expectedUTxO' pf (ExpectSuccess (validatingBody pf) (outEx1 pf)) 1
-
-utxoStEx1 ::
-  forall era.
-  (Default (State (EraRule "PPUP" era)), EraTxBody era, PostShelley era) =>
-  Proof era ->
-  UTxOState era
-utxoStEx1 pf = smartUTxOState (utxoEx1 pf) (Coin 0) (Coin 5) def
-
--- ======================================================================
---  Example 2: Process a SPEND transaction with a failing Plutus script.
--- ======================================================================
-
-utxoEx2 :: (EraTxBody era, PostShelley era) => Proof era -> UTxO era
-utxoEx2 pf = expectedUTxO' pf ExpectFailure 2
-
-utxoStEx2 ::
-  (Default (State (EraRule "PPUP" era)), EraTxBody era, PostShelley era) =>
-  Proof era ->
-  UTxOState era
-utxoStEx2 pf = smartUTxOState (utxoEx2 pf) (Coin 0) (Coin 5) def
-
--- =========================================================================
---  Example 3: Process a CERT transaction with a succeeding Plutus script.
--- =========================================================================
 
 outEx3 :: EraTxOut era => Proof era -> TxOut era
 outEx3 pf = newTxOut pf [Address (someAddr pf), Amount (inject $ Coin 995)]
@@ -1115,7 +1053,7 @@ outEx10 :: forall era. (EraTxBody era, Scriptic era) => Proof era -> TxOut era
 outEx10 pf =
   newTxOut
     pf
-    [ Address (scriptAddr (always 3 pf) pf),
+    [ Address (someScriptAddr (always 3 pf) pf),
       Amount (inject $ Coin 995),
       DHash' [hashData $ datumExample1 @era]
     ]
@@ -1707,97 +1645,51 @@ noCostModelTx pf =
         ]
     ]
 
-quietPlutusFailure :: FailureDescription
-quietPlutusFailure = PlutusFailure "human" "debug"
+-- ============================== HELPER FUNCTIONS ===============================
 
--- =====================================================================================
--- Proof parameterized TestTrees
+--  This is a helper type for the expectedUTxO function.
+--  ExpectSuccess indicates that we created a valid transaction
+--  where the IsValid flag is true.
+data Expect era
+  = ExpectSuccess (TxBody era) (TxOut era)
+  | ExpectSuccessInvalid
+  | ExpectFailure
 
--- | This type is what you get when you use runSTS in the UTXOW rule. It is also
---   the type one uses for expected answers, to compare the 'computed' against 'expected'
-type Result era = Either [PredicateFailure (EraRule "UTXOW" era)] (State (EraRule "UTXOW" era))
-
-testUTXOWwith ::
+-- | In each of our main eight examples, the UTxO map obtained
+-- by applying the transaction is straightforward. This function
+-- captures the logic.
+--
+-- Each example transaction (given a number i) will use
+-- (TxIn genesisId (10+i), someOutput) for its' single input,
+-- and (TxIn genesisId i, collateralOutput) for its' single collateral output.
+--
+-- If we expect the transaction script to validate, then
+-- the UTxO for (TxIn genesisId i) will be consumed and a UTxO will be created.
+-- Otherwise, the UTxO for (TxIn genesisId (10+i)) will be consumed.
+expectedUTxO ::
   forall era.
-  ( GoodCrypto (Crypto era),
-    Default (State (EraRule "PPUP" era)),
-    EraTx era
-  ) =>
-  WitRule "UTXOW" era ->
-  (Result era -> Result era -> Assertion) ->
+  (HasCallStack, EraTxBody era) =>
   UTxO era ->
-  PParams era ->
-  Tx era ->
-  Result era ->
-  Assertion
-testUTXOWwith wit@(UTXOW proof) cont utxo pparams tx expected =
-  let env = utxoEnv pparams
-      state = initialUtxoSt utxo
-   in case proof of
-        Conway _ -> runSTS wit (TRC (env, state, tx)) (cont expected)
-        Babbage _ -> runSTS wit (TRC (env, state, tx)) (cont expected)
-        Alonzo _ -> runSTS wit (TRC (env, state, tx)) (cont expected)
-        Mary _ -> runSTS wit (TRC (env, state, tx)) (cont expected)
-        Allegra _ -> runSTS wit (TRC (env, state, tx)) (cont expected)
-        Shelley _ -> runSTS wit (TRC (env, state, tx)) (cont expected)
+  Expect era ->
+  Integer ->
+  UTxO era
+expectedUTxO initUtxo ex idx = UTxO utxo
+  where
+    utxo = case ex of
+      ExpectSuccess txb newOut ->
+        Map.insert (TxIn (txid txb) minBound) newOut (filteredUTxO (mkTxIxPartial idx))
+      ExpectSuccessInvalid -> filteredUTxO (mkTxIxPartial idx)
+      ExpectFailure -> filteredUTxO (mkTxIxPartial (10 + idx))
+    filteredUTxO :: TxIx -> Map.Map (TxIn (Crypto era)) (TxOut era)
+    filteredUTxO x = Map.filterWithKey (\(TxIn _ i) _ -> i /= x) $ unUTxO initUtxo
 
-isSubset :: Eq t => [t] -> [t] -> Bool
-isSubset small big = List.all (`List.elem` big) small
-
-subsetCont ::
-  ( Eq x,
-    Show x,
-    PrettyA x,
-    Eq y,
-    Show y,
-    PrettyA y
-  ) =>
-  Either [x] y ->
-  Either [x] y ->
-  Assertion
-subsetCont expected computed =
-  case (computed, expected) of
-    (Left c, Left e) ->
-      -- It is OK if the expected is a subset of what's computed
-      if isSubset e c then e @?= e else c @?= e
-    (Right c, Right e) -> c @?= e
-    (Left x, Right y) ->
-      error $
-        "expected to pass with "
-          ++ show (prettyA y)
-          ++ "\n\nBut failed with\n\n"
-          ++ show (ppList prettyA x)
-    (Right x, Left y) ->
-      error $
-        "expected to fail with "
-          ++ show (ppList prettyA y)
-          ++ "\n\nBut passed with\n\n"
-          ++ show (prettyA x)
-
--- ==============================================================================
--- Three slighty different ways to make an Assertion, but all with the same type
-
-testUTXOWsubset,
-  specialCase ::
-    forall era.
-    ( GoodCrypto (Crypto era),
-      Default (State (EraRule "PPUP" era)),
-      PostShelley era,
-      EraTx era,
-      HasCallStack
-    ) =>
-    WitRule "UTXOW" era ->
-    UTxO era ->
-    PParams era ->
-    Tx era ->
-    Either [PredicateFailure (EraRule "UTXOW" era)] (State (EraRule "UTXOW" era)) ->
-    Assertion
-
--- | Use a subset test on the expected and computed [PredicateFailure]
-testUTXOWsubset wit@(UTXOW (Alonzo _)) utxo = testUTXOWwith wit subsetCont utxo
-testUTXOWsubset wit@(UTXOW (Babbage _)) utxo = testUTXOWwith wit subsetCont utxo
-testUTXOWsubset wit@(UTXOW (Conway _)) utxo = testUTXOWwith wit subsetCont utxo
-testUTXOWsubset (UTXOW other) _ = error ("Cannot use testUTXOW in era " ++ show other)
+expectedUTxO' ::
+  (HasCallStack, EraTxBody era, PostShelley era) =>
+  Proof era ->
+  Expect era ->
+  Integer ->
+  UTxO era
+expectedUTxO' pf ex idx = expectedUTxO (initUTxO pf) ex idx
 
 testU ::
   forall era.
@@ -1813,49 +1705,31 @@ testU ::
   Assertion
 testU pf tx expect = testUTXOW (UTXOW pf) (initUTxO pf) (pp pf) tx expect
 
--- | Use a test where any two (ValidationTagMismatch x y) failures match regardless of 'x' and 'y'
-specialCase wit@(UTXOW proof) utxo pparam tx expected =
-  let env = utxoEnv pparam
-      state = initialUtxoSt utxo
-   in case proof of
-        Alonzo _ -> runSTS wit (TRC (env, state, tx)) (specialCont proof expected)
-        Babbage _ -> runSTS wit (TRC (env, state, tx)) (specialCont proof expected)
-        Conway _ -> runSTS wit (TRC (env, state, tx)) (specialCont proof expected)
-        other -> error ("Cannot use specialCase in era " ++ show other)
+timelockScript :: PostShelley era => Int -> Proof era -> Script era
+timelockScript s = allOf [matchkey 1, after (100 + s)]
 
--- ========================================
--- This implements a special rule to test that for ValidationTagMismatch. Rather than comparing the insides of
--- ValidationTagMismatch (which are complicated and depend on Plutus) we just note that both the computed
--- and expected are ValidationTagMismatch. Of course the 'path' to ValidationTagMismatch differs by Era.
--- so we need to case over the Era proof, to get the path correctly.
-
-findMismatch ::
+timelockHash ::
+  forall era.
+  PostShelley era =>
+  Int ->
   Proof era ->
-  PredicateFailure (EraRule "UTXOW" era) ->
-  Maybe (AlonzoUtxosPredFailure era)
-findMismatch (Alonzo _) (ShelleyInAlonzoUtxowPredFailure (Shelley.UtxoFailure (UtxosFailure x@(ValidationTagMismatch _ _)))) = Just x
-findMismatch (Babbage _) (Babbage.UtxoFailure (AlonzoInBabbageUtxoPredFailure (UtxosFailure x@(ValidationTagMismatch _ _)))) = Just x
-findMismatch (Conway _) (Babbage.UtxoFailure (AlonzoInBabbageUtxoPredFailure (UtxosFailure x@(ValidationTagMismatch _ _)))) = Just x
-findMismatch _ _ = Nothing
+  ScriptHash (Crypto era)
+timelockHash n pf = hashScript @era $ timelockScript n pf
 
-specialCont ::
-  ( Eq (PredicateFailure (EraRule "UTXOW" era)),
-    Eq a,
-    Show (PredicateFailure (EraRule "UTXOW" era)),
-    Show a,
-    HasCallStack
-  ) =>
-  Proof era ->
-  Either [PredicateFailure (EraRule "UTXOW" era)] a ->
-  Either [PredicateFailure (EraRule "UTXOW" era)] a ->
-  Assertion
-specialCont proof expected computed =
-  case (computed, expected) of
-    (Left [x], Left [y]) ->
-      case (findMismatch proof x, findMismatch proof y) of
-        (Just _, Just _) -> y @?= y
-        (_, _) -> error "Not both ValidationTagMismatch case 1"
-    (Left _, Left _) -> error "Not both ValidationTagMismatch case 2"
-    (Right x, Right y) -> x @?= y
-    (Left _, Right _) -> error "expected to pass, but failed."
-    (Right _, Left _) -> error "expected to fail, but passed."
+quietPlutusFailure :: FailureDescription
+quietPlutusFailure = PlutusFailure "human" "debug"
+
+-- ============================== PPARAMS ===============================
+
+defaultPPs :: [PParamsField era]
+defaultPPs =
+  [ Costmdls . CostModels $ Map.singleton PlutusV1 freeCostModelV1,
+    MaxValSize 1000000000,
+    MaxTxExUnits $ ExUnits 1000000 1000000,
+    MaxBlockExUnits $ ExUnits 1000000 1000000,
+    ProtocolVersion $ ProtVer 5 0,
+    CollateralPercentage 100
+  ]
+
+pp :: Proof era -> PParams era
+pp pf = newPParams pf defaultPPs

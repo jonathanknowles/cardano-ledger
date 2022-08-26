@@ -92,7 +92,9 @@ import Data.UMap (View (Rewards))
 import qualified Data.UMap as UM
 import qualified Plutus.V1.Ledger.Api as Plutus
 import Test.Cardano.Ledger.Examples.STSTestUtils
-  ( freeCostModelV1,
+  ( alwaysFailsHash,
+    alwaysSucceedsHash,
+    freeCostModelV1,
     initUTxO,
     mkGenesisTxIn,
     mkTxDats,
@@ -357,7 +359,7 @@ notValidatingTxWithWithdrawal pf =
         pf
         [ Inputs' [mkGenesisTxIn 6],
           Collateral' [mkGenesisTxIn 16],
-          Outputs' [outEx6 pf],
+          Outputs' [newTxOut pf [Address (someAddr pf), Amount (inject $ Coin 1995)]],
           Txfee (Coin 5),
           Wdrls
             ( Wdrl $
@@ -368,9 +370,6 @@ notValidatingTxWithWithdrawal pf =
           WppHash (newScriptIntegrityHash pf (pp pf) [PlutusV1] notValidatingRedeemers mempty)
         ]
     notValidatingRedeemers = Redeemers $ Map.singleton (RdmrPtr Tag.Rewrd 0) (Data (Plutus.I 0), ExUnits 5000 5000)
-
-outEx6 :: (Scriptic era, EraTxOut era) => Proof era -> TxOut era
-outEx6 pf = newTxOut pf [Address (someAddr pf), Amount (inject $ Coin 1995)]
 
 validatingTxWithCert ::
   forall era.
@@ -673,12 +672,10 @@ makeNaiveBlock txs = UnsafeUnserialisedBlock bhView txs'
     txs' = (toTxSeq @era) . StrictSeq.fromList $ txs
 
 scriptStakeCredFail :: forall era. Scriptic era => Proof era -> StakeCredential (Crypto era)
-scriptStakeCredFail pf = ScriptHashObj (alwaysFailsHash 1)
-  where
-    alwaysFailsHash n = hashScript @era $ never n pf
+scriptStakeCredFail pf = ScriptHashObj (alwaysFailsHash 1 pf)
 
 scriptStakeCredSuceed :: forall era. Scriptic era => Proof era -> StakeCredential (Crypto era)
-scriptStakeCredSuceed pf = ScriptHashObj (hashScript @era $ always 2 pf)
+scriptStakeCredSuceed pf = ScriptHashObj (alwaysSucceedsHash 2 pf)
 
 hashsize :: forall c. CC.Crypto c => Int
 hashsize = fromIntegral $ sizeHash ([] @(CC.HASH c))
