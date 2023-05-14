@@ -65,6 +65,7 @@ library
         deepseq,
         groups,
         microlens,
+        monoidmap,
         nothunks,
         primitive,
         cardano-strict-containers,
@@ -93,6 +94,7 @@ library testlib
         cardano-ledger-mary >=1.0.0.1,
         cardano-ledger-allegra:testlib,
         cardano-strict-containers,
+        monoidmap,
         QuickCheck
 
 test-suite tests
