@@ -24,11 +24,16 @@ import Cardano.Ledger.Mary.Value (
   MultiAsset (..),
   PolicyID (..),
   isMultiAssetSmallEnough,
+  multiAssetFromMap,
  )
 import qualified Cardano.Ledger.Mary.Value as ConcreteValue
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map (empty)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Maybe.Strict (StrictMaybe)
+import qualified Data.Monoid as M
+import qualified Data.MonoidMap as MonoidMap
+import qualified Data.MonoidMap.Unsafe as MonoidMap.Unsafe
 import Data.String (IsString (fromString))
 import Test.Cardano.Data (genNonEmptyMap)
 import Test.Cardano.Ledger.Allegra.Arbitrary ()
@@ -138,7 +143,7 @@ genMultiAsset :: forall c. Crypto c => Gen Integer -> Gen (MultiAsset c)
 genMultiAsset genAmount = do
   ma <-
     oneof
-      [ MultiAsset <$> genNonEmptyMap arbitrary (genNonEmptyMap arbitrary genAmount)
+      [ multiAssetFromMap <$> genNonEmptyMap arbitrary (genNonEmptyMap arbitrary genAmount)
       , multiAssetFromListBounded <$> listOf1 (genMultiAssetTriple $ fromIntegral <$> genAmount)
       ]
   if isMultiAssetSmallEnough ma
@@ -147,7 +152,8 @@ genMultiAsset genAmount = do
 
 -- | For tests, because `insertMultiAsset` called through `genMultiAsset` filters out zero values
 genMultiAssetZero :: Crypto c => Gen (MultiAsset c)
-genMultiAssetZero = MultiAsset <$> genNonEmptyMap arbitrary (genNonEmptyMap arbitrary (pure 0))
+genMultiAssetZero = unsafeMultiAssetFromMap <$>
+  genNonEmptyMap arbitrary (genNonEmptyMap arbitrary (pure 0))
 
 -- For negative tests, we need a definite generator that will produce just large-enough MultiAssets
 -- that will fail decoding, but not large-enough to consume too much resource.
@@ -185,7 +191,7 @@ genMultiAssetToFail isForMaryValue = do
   let MultiAsset ma = multiAssetFromListBounded $ initialTriples <> remainingTriples
   -- Ensure that the large numbers aren't reduced due to duplicates.
   -- This is impossible in practice, since PRNG produces uniform values.
-  if length ma == numP && sum (length <$> ma) == numA
+  if length ma == numP && M.getSum (foldMap (M.Sum . MonoidMap.nonNullCount) ma) == numA
     then pure $ MultiAsset ma
     else genMultiAssetToFail isForMaryValue
 
@@ -200,7 +206,7 @@ instance Crypto c => Arbitrary (MultiAsset c) where
 
 genEmptyMultiAsset :: Crypto c => Gen (MultiAsset c)
 genEmptyMultiAsset =
-  MultiAsset <$> genNonEmptyMap arbitrary (pure Map.empty)
+  unsafeMultiAssetFromMap <$> genNonEmptyMap arbitrary (pure Map.empty)
 
 genMaryValue :: Gen (MultiAsset c) -> Gen (MaryValue c)
 genMaryValue genMA = do
@@ -220,3 +226,19 @@ digitByteStrings = [fromString [x] | x <- ['0' .. '9']]
 
 hashOfDigitByteStrings :: HashAlgorithm h => [Hash h a]
 hashOfDigitByteStrings = castHash . hashWith id <$> digitByteStrings
+
+-- | Unsafely constructs a 'MultiAsset' from a 'Map'.
+--
+-- Warning: only for use in test code.
+--
+-- This function makes it possible to build a 'MultiAsset' map where the
+-- following invariants are violated:
+--
+-- - that there are no mappings from 'PolicyID' to empty maps.
+-- - that there are no zero-valued assets.
+--
+unsafeMultiAssetFromMap :: Map (PolicyID c) (Map AssetName Integer) -> MultiAsset c
+unsafeMultiAssetFromMap =
+  MultiAsset
+    . MonoidMap.Unsafe.unsafeFromMap
+    . Map.map (MonoidMap.Unsafe.unsafeFromMap . fmap M.Sum)

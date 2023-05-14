@@ -11,7 +11,7 @@ import Cardano.Ledger.BaseTypes (natVersion)
 import Cardano.Ledger.Coin (Coin (Coin))
 import Cardano.Ledger.Compactible (fromCompact, toCompact)
 import Cardano.Ledger.Core (eraProtVerLow)
-import Cardano.Ledger.Crypto (Crypto, StandardCrypto)
+import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Ledger.Mary (Mary)
 import Cardano.Ledger.Mary.Value
 import Control.Exception (AssertionFailed (AssertionFailed), evaluate)
@@ -97,29 +97,28 @@ instance IsString AssetName where
   fromString = AssetName . either error SBS.toShort . BS16.decode . BS8.pack
 
 propCanonicalConstructionAgrees ::
-  Crypto c =>
   [(PolicyID c, AssetName, Integer)] ->
   [(PolicyID c, AssetName, Integer)] ->
   Property
 propCanonicalConstructionAgrees xs ys = property $ do
-  let ma1@(MultiAsset a1) = multiAssetFromList xs
-      ma2@(MultiAsset a2) = multiAssetFromList ys
-  expectValidMap a1
-  expectValidMap a2
-  let mb1@(MultiAsset b1) =
+  let ma1 = multiAssetFromList xs
+      ma2 = multiAssetFromList ys
+  expectValidMap (multiAssetToMap ma1)
+  expectValidMap (multiAssetToMap ma2)
+  let mb1 =
         mconcat
-          [ MultiAsset $
+          [ multiAssetFromMap $
             canonicalInsert const pid (canonicalInsert const an i mempty) mempty
           | (pid, an, i) <- xs
           ]
-      mb2@(MultiAsset b2) =
+      mb2 =
         mconcat
-          [ MultiAsset $
+          [ multiAssetFromMap $
             canonicalInsert const pid (canonicalInsert const an i mempty) mempty
           | (pid, an, i) <- ys
           ]
-  expectValidMap b1
-  expectValidMap b2
+  expectValidMap (multiAssetToMap mb1)
+  expectValidMap (multiAssetToMap mb2)
   ma1 `shouldBe` mb1
   ma2 `shouldBe` mb2
   ma1 <> ma2 `shouldBe` mb1 <> mb2
