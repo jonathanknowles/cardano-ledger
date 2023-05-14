@@ -41,8 +41,7 @@ spec :: Spec
 spec = do
   describe "MultiAsset" $ do
     prop "Canonical construction agrees" $
-      withMaxSuccess 100000 $
-        propCanonicalConstructionAgrees @StandardCrypto
+      propCanonicalConstructionAgrees @StandardCrypto
   describe "CBOR roundtrip" $ do
     context "Coin" $ do
       prop "Non-negative Coin succeeds for all eras" $
